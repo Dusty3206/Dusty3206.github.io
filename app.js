@@ -16,7 +16,7 @@ const ICONS = {
   heartFilled: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>',
-  note: '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
+  note: '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
   user: '<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5zm0 2c-5.33 0-8 2.67-8 4v2h16v-2c0-1.33-2.67-4-8-4z"/></svg>',
   disc: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/></svg>',
   shuffle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>',
@@ -41,7 +41,7 @@ const state = {
   originalQueue: [],
   queueIndex: -1,
   shuffle: false,
-  repeat: 'off', // 'off' | 'all' | 'one'
+  repeat: 'off',
   videoMode: false,
   muted: false,
   lastVolume: 0.8
@@ -53,6 +53,21 @@ const $ = (sel) => document.querySelector(sel);
 
 let toastTimer = null;
 let activePopover = null;
+
+/* ---------- Broken Image Fallback ---------- */
+
+function createFallbackIcon(type) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = ICONS[type] || ICONS.note;
+  return tpl.content.firstElementChild;
+}
+
+document.addEventListener('error', (e) => {
+  const img = e.target;
+  if (img && img.tagName === 'IMG' && img.dataset.fallback) {
+    img.replaceWith(createFallbackIcon(img.dataset.fallback));
+  }
+}, true);
 
 /* ---------- Utilities ---------- */
 
@@ -253,7 +268,10 @@ async function loadMusicLibrary() {
 
   if (manifest) {
     rawSongs = Array.isArray(manifest) ? manifest : (manifest.songs || manifest.tracks || []);
-  } else {
+  }
+
+  // If no music.json or its "songs" array is empty, auto-scan the Music folder
+  if (!rawSongs.length) {
     try {
       const allLinks = [];
       for (const sub of ['', 'MP3', 'MP4', 'Covers']) {
@@ -446,15 +464,15 @@ function renderPlaylistArt(playlist, sizeClass = '') {
     return `<div class="${sizeClass} liked">${ICONS.heartFilled}</div>`;
   }
   if (playlist.cover) {
-    return `<div class="${sizeClass}"><img src="${escapeHTML(playlist.cover)}" alt="" loading="lazy"></div>`;
+    return `<div class="${sizeClass}"><img src="${escapeHTML(playlist.cover)}" data-fallback="note" alt="" loading="lazy"></div>`;
   }
   const tracks = getPlaylistTracks(playlist);
   const covers = [...new Set(tracks.map((t) => t.cover).filter(Boolean))].slice(0, 4);
   if (covers.length >= 4) {
-    return `<div class="${sizeClass}"><div class="mosaic">${covers.map((c) => `<img src="${escapeHTML(c)}" alt="" loading="lazy">`).join('')}</div></div>`;
+    return `<div class="${sizeClass}"><div class="mosaic">${covers.map((c) => `<img src="${escapeHTML(c)}" data-fallback="note" alt="" loading="lazy">`).join('')}</div></div>`;
   }
   if (covers.length >= 1) {
-    return `<div class="${sizeClass}"><img src="${escapeHTML(covers[0])}" alt="" loading="lazy"></div>`;
+    return `<div class="${sizeClass}"><img src="${escapeHTML(covers[0])}" data-fallback="note" alt="" loading="lazy"></div>`;
   }
   return `<div class="${sizeClass}">${ICONS.note}</div>`;
 }
@@ -560,7 +578,7 @@ async function loadAndPlayTrack(trackId) {
   try {
     await media.play();
   } catch {
-    notify(`Could not play "${track.title}"`, true);
+    notify(`Could not play "${track.title}". Check that the MP3 file exists in your Music folder.`, true);
   }
 }
 
@@ -668,7 +686,7 @@ function updateNowPlayingUI() {
 
   const coverEl = $('#npCover');
   coverEl.innerHTML = track.cover
-    ? `<img src="${escapeHTML(track.cover)}" alt="">`
+    ? `<img src="${escapeHTML(track.cover)}" data-fallback="note" alt="">`
     : ICONS.note;
 
   const liked = state.likedFiles.has(track.file);
@@ -757,27 +775,27 @@ function renderSidebar() {
     list.innerHTML = albums.length
       ? albums.map((alb) => `
           <button class="lib-item ${view === 'album' && param === alb.id ? 'active' : ''}" data-open-album="${escapeHTML(alb.id)}">
-            <div class="lib-thumb">${alb.cover ? `<img src="${escapeHTML(alb.cover)}" alt="" loading="lazy">` : ICONS.disc}</div>
+            <div class="lib-thumb">${alb.cover ? `<img src="${escapeHTML(alb.cover)}" data-fallback="disc" alt="" loading="lazy">` : ICONS.disc}</div>
             <div class="lib-meta">
               <div class="lib-name">${escapeHTML(alb.title)}</div>
               <div class="lib-sub">Album · ${escapeHTML(alb.artist)}</div>
             </div>
           </button>
         `).join('')
-      : `<div style="padding:16px;color:var(--text-muted);font-size:12px;">No albums found. Add album names in <code>Music/music.json</code>.</div>`;
+      : `<div style="padding:16px;color:var(--text-muted);font-size:13px;">No albums yet.</div>`;
   } else {
     const artists = [...state.artists.values()].sort((a, b) => a.name.localeCompare(b.name));
     list.innerHTML = artists.length
       ? artists.map((art) => `
           <button class="lib-item ${view === 'artist' && param === art.name ? 'active' : ''}" data-open-artist="${escapeHTML(art.name)}">
-            <div class="lib-thumb round">${art.avatar ? `<img src="${escapeHTML(art.avatar)}" alt="" loading="lazy">` : ICONS.user}</div>
+            <div class="lib-thumb round">${art.avatar ? `<img src="${escapeHTML(art.avatar)}" data-fallback="user" alt="" loading="lazy">` : ICONS.user}</div>
             <div class="lib-meta">
               <div class="lib-name">${escapeHTML(art.name)}</div>
               <div class="lib-sub">Artist · ${art.tracks.length} ${art.tracks.length === 1 ? 'song' : 'songs'}</div>
             </div>
           </button>
         `).join('')
-      : `<div style="padding:16px;color:var(--text-muted);font-size:12px;">No artists loaded yet.</div>`;
+      : `<div style="padding:16px;color:var(--text-muted);font-size:13px;">No artists loaded yet.</div>`;
   }
 }
 
@@ -795,7 +813,7 @@ function trackRowHTML(track, index, queueIds, options = {}) {
       </button>
 
       <div class="t-main">
-        <div class="t-cover">${track.cover ? `<img src="${escapeHTML(track.cover)}" alt="" loading="lazy">` : ICONS.note}</div>
+        <div class="t-cover">${track.cover ? `<img src="${escapeHTML(track.cover)}" data-fallback="note" alt="" loading="lazy">` : ICONS.note}</div>
         <div class="t-info">
           <div class="t-name">${escapeHTML(track.title)}</div>
           <div class="t-artist"><button data-open-artist="${escapeHTML(track.artist)}">${escapeHTML(track.artist)}</button></div>
@@ -864,7 +882,7 @@ function renderHomeView() {
         ${albums.map((alb) => `
           <div class="media-card" data-open-album="${escapeHTML(alb.id)}">
             <div class="card-art">
-              ${alb.cover ? `<img src="${escapeHTML(alb.cover)}" alt="" loading="lazy">` : ICONS.disc}
+              ${alb.cover ? `<img src="${escapeHTML(alb.cover)}" data-fallback="disc" alt="" loading="lazy">` : ICONS.disc}
               <button class="card-play-fab" data-quick-play-album="${escapeHTML(alb.id)}" aria-label="Play ${escapeHTML(alb.title)}">${ICONS.play}</button>
             </div>
             <div class="card-title">${escapeHTML(alb.title)}</div>
@@ -880,7 +898,7 @@ function renderHomeView() {
         ${artists.slice(0, 12).map((art) => `
           <div class="media-card" data-open-artist="${escapeHTML(art.name)}">
             <div class="card-art round">
-              ${art.avatar ? `<img src="${escapeHTML(art.avatar)}" alt="" loading="lazy">` : ICONS.user}
+              ${art.avatar ? `<img src="${escapeHTML(art.avatar)}" data-fallback="user" alt="" loading="lazy">` : ICONS.user}
               <button class="card-play-fab" data-quick-play-artist="${escapeHTML(art.name)}" aria-label="Play ${escapeHTML(art.name)}">${ICONS.play}</button>
             </div>
             <div class="card-title">${escapeHTML(art.name)}</div>
@@ -892,10 +910,10 @@ function renderHomeView() {
 
     <div class="section-head">
       <h2>All Tracks</h2>
-      <span style="color:var(--text-subdued);font-size:13px;">${state.tracks.length} songs</span>
+      <span style="color:var(--text-subdued);font-size:14px;">${state.tracks.length} ${state.tracks.length === 1 ? 'song' : 'songs'}</span>
     </div>
     ${renderTrackTable(state.tracks, {
-      emptyMessage: 'No MP3s found. Add songs to your Music folder or Music/music.json.'
+      emptyMessage: 'No MP3s found yet. Upload .mp3 files into your Music/ folder on GitHub.'
     })}
   `;
 }
@@ -928,7 +946,7 @@ function renderSearchView() {
       <div class="card-grid">
         ${matchingArtists.slice(0, 6).map((art) => `
           <div class="media-card" data-open-artist="${escapeHTML(art.name)}">
-            <div class="card-art round">${art.avatar ? `<img src="${escapeHTML(art.avatar)}" alt="">` : ICONS.user}</div>
+            <div class="card-art round">${art.avatar ? `<img src="${escapeHTML(art.avatar)}" data-fallback="user" alt="">` : ICONS.user}</div>
             <div class="card-title">${escapeHTML(art.name)}</div>
             <div class="card-sub">Artist</div>
           </div>
@@ -941,7 +959,7 @@ function renderSearchView() {
       <div class="card-grid">
         ${matchingAlbums.slice(0, 6).map((alb) => `
           <div class="media-card" data-open-album="${escapeHTML(alb.id)}">
-            <div class="card-art">${alb.cover ? `<img src="${escapeHTML(alb.cover)}" alt="">` : ICONS.disc}</div>
+            <div class="card-art">${alb.cover ? `<img src="${escapeHTML(alb.cover)}" data-fallback="disc" alt="">` : ICONS.disc}</div>
             <div class="card-title">${escapeHTML(alb.title)}</div>
             <div class="card-sub">${escapeHTML(alb.artist)}</div>
           </div>
@@ -972,7 +990,7 @@ function renderLibraryView() {
   return `
     <div class="section-head">
       <h2>Your Playlists</h2>
-      <button id="libPageCreateBtn" class="btn-pill" style="padding:7px 14px;">+ New Playlist</button>
+      <button id="libPageCreateBtn" class="btn-pill" style="padding:8px 16px;">+ New Playlist</button>
     </div>
     <div class="card-grid">
       ${playlists.map((pl) => `
@@ -1047,7 +1065,7 @@ async function renderAlbumView(albumId) {
 
   return `
     <div class="entity-hero" style="--hero-tint:${tint};">
-      <div class="hero-cover">${album.cover ? `<img src="${escapeHTML(album.cover)}" alt="">` : ICONS.disc}</div>
+      <div class="hero-cover">${album.cover ? `<img src="${escapeHTML(album.cover)}" data-fallback="disc" alt="">` : ICONS.disc}</div>
       <div class="hero-meta">
         <div class="hero-type">Album</div>
         <h1 class="hero-title">${escapeHTML(album.title)}</h1>
@@ -1085,7 +1103,7 @@ async function renderArtistView(artistName) {
 
   return `
     <div class="entity-hero ${artist.banner ? 'with-banner' : ''}" style="${bannerStyle}">
-      ${artist.banner ? '' : `<div class="hero-cover round">${artist.avatar ? `<img src="${escapeHTML(artist.avatar)}" alt="">` : ICONS.user}</div>`}
+      ${artist.banner ? '' : `<div class="hero-cover round">${artist.avatar ? `<img src="${escapeHTML(artist.avatar)}" data-fallback="user" alt="">` : ICONS.user}</div>`}
       <div class="hero-meta">
         <div class="hero-type">${artist.genre ? escapeHTML(artist.genre) : 'Artist'}</div>
         <h1 class="hero-title">${escapeHTML(artist.name)}</h1>
@@ -1113,7 +1131,7 @@ async function renderArtistView(artistName) {
         ${artistAlbums.map((alb) => `
           <div class="media-card" data-open-album="${escapeHTML(alb.id)}">
             <div class="card-art">
-              ${alb.cover ? `<img src="${escapeHTML(alb.cover)}" alt="" loading="lazy">` : ICONS.disc}
+              ${alb.cover ? `<img src="${escapeHTML(alb.cover)}" data-fallback="disc" alt="" loading="lazy">` : ICONS.disc}
               <button class="card-play-fab" data-quick-play-album="${escapeHTML(alb.id)}" aria-label="Play ${escapeHTML(alb.title)}">${ICONS.play}</button>
             </div>
             <div class="card-title">${escapeHTML(alb.title)}</div>
@@ -1165,7 +1183,7 @@ function renderInlineAddResults(playlistId, query) {
   target.innerHTML = candidates.map((t) => `
     <div class="track-row" style="grid-template-columns:minmax(0,1fr) auto;">
       <div class="t-main">
-        <div class="t-cover">${t.cover ? `<img src="${escapeHTML(t.cover)}" alt="">` : ICONS.note}</div>
+        <div class="t-cover">${t.cover ? `<img src="${escapeHTML(t.cover)}" data-fallback="note" alt="">` : ICONS.note}</div>
         <div class="t-info">
           <div class="t-name">${escapeHTML(t.title)}</div>
           <div class="t-artist">${escapeHTML(t.artist)}</div>
